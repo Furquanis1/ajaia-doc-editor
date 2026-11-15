@@ -71,8 +71,10 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS document_shares (
-    doc_id  INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    doc_id     INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission TEXT NOT NULL DEFAULT 'write'
+               CHECK (permission IN ('read', 'write')),
     PRIMARY KEY (doc_id, user_id)
   );
 
@@ -97,6 +99,21 @@ async function initialize() {
 
   for (const statement of statements) {
     await run(statement);
+  }
+
+  // Databases created before sharing permissions existed need the column
+  // added in place; `CREATE TABLE IF NOT EXISTS` leaves them untouched.
+  const shareColumns = await all('PRAGMA table_info(document_shares)');
+  const hasPermission = shareColumns.some(
+    (column) => column.name === 'permission'
+  );
+
+  if (!hasPermission) {
+    await run(
+      `ALTER TABLE document_shares
+         ADD COLUMN permission TEXT NOT NULL DEFAULT 'write'
+         CHECK (permission IN ('read', 'write'))`
+    );
   }
 
   for (const user of SEED_USERS) {

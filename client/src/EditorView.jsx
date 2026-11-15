@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Bold,
   CheckCircle2,
+  Eye,
   FileQuestion,
   Heading1,
   Heading2,
@@ -241,6 +242,17 @@ function SaveStatusPill({ state, message }) {
   );
 }
 
+// --- Read-only badge -------------------------------------------------------
+
+function ViewOnlyPill() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
+      <Eye className="size-3.5" aria-hidden="true" />
+      View only
+    </span>
+  );
+}
+
 // --- Share modal ------------------------------------------------------------
 
 function ShareModal({
@@ -259,11 +271,14 @@ function ShareModal({
   const [selectedUserId, setSelectedUserId] = useState(
     recipients.length > 0 ? String(recipients[0].id) : ''
   );
+  const [permission, setPermission] = useState('write');
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [revokingId, setRevokingId] = useState(null);
+  const [updatingId, setUpdatingId] = useState(null);
   const selectRef = useRef(null);
   const isSaving = status === 'saving';
+  const isBusy = revokingId !== null || updatingId !== null;
 
   useEffect(() => {
     const previouslyFocused = window.document.activeElement;
@@ -321,9 +336,17 @@ function ShareModal({
     setMessage('');
 
     try {
-      const result = await shareDocument(activeUserId, doc.id, targetUserId);
-      const sharedUser =
+      const result = await shareDocument(
+        activeUserId,
+        doc.id,
+        targetUserId,
+        permission
+      );
+      const baseUser =
         result?.user || users.find((user) => user.id === targetUserId) || null;
+      const sharedUser = baseUser
+        ? { ...baseUser, permission: result?.permission ?? permission }
+        : null;
       const recipientName =
         sharedUser?.name ||
         recipients.find((user) => user.id === targetUserId)?.name ||
@@ -332,16 +355,57 @@ function ShareModal({
       if (sharedUser) {
         setSharedWith((current) =>
           current.some((user) => user.id === sharedUser.id)
-            ? current
+            ? current.map((user) =>
+                user.id === sharedUser.id ? sharedUser : user
+              )
             : [...current, sharedUser]
         );
       }
 
       setStatus('success');
-      setMessage(`Shared with ${recipientName}.`);
+      setMessage(
+        `Shared with ${recipientName} — ${
+          permission === 'read' ? 'can view' : 'can edit'
+        }.`
+      );
     } catch (err) {
       setStatus('error');
       setMessage(err.message || 'Could not share this document.');
+    }
+  }
+
+  async function handlePermissionChange(user, nextPermission) {
+    if (nextPermission !== 'read' && nextPermission !== 'write') return;
+    if (user.permission === nextPermission) return;
+
+    setUpdatingId(user.id);
+    setStatus('idle');
+    setMessage('');
+
+    try {
+      const result = await shareDocument(
+        activeUserId,
+        doc.id,
+        user.id,
+        nextPermission
+      );
+
+      setSharedWith((current) =>
+        current.map((entry) =>
+          entry.id === user.id
+            ? { ...entry, permission: result?.permission ?? nextPermission }
+            : entry
+        )
+      );
+      setStatus('success');
+      setMessage(
+        `${user.name} can ${nextPermission === 'read' ? 'view' : 'edit'} this document.`
+      );
+    } catch (err) {
+      setStatus('error');
+      setMessage(err.message || 'Could not update access.');
+    } finally {
+      setUpdatingId(null);
     }
   }
 
@@ -416,20 +480,32 @@ function ShareModal({
               Share with
             </label>
             {recipients.length > 0 ? (
-              <select
-                id="share-recipient"
-                ref={selectRef}
-                value={selectedUserId}
-                onChange={handleSelectionChange}
-                disabled={isSaving}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-2xs transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
-              >
-                {recipients.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name} ({user.email})
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <select
+                  id="share-recipient"
+                  ref={selectRef}
+                  value={selectedUserId}
+                  onChange={handleSelectionChange}
+                  disabled={isSaving}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-2xs transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                >
+                  {recipients.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} ({user.email})
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Permission for new collaborator"
+                  value={permission}
+                  onChange={(event) => setPermission(event.target.value)}
+                  disabled={isSaving}
+                  className="w-28 shrink-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5 text-sm text-slate-700 shadow-2xs transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+                >
+                  <option value="write">Can edit</option>
+                  <option value="read">Can view</option>
+                </select>
+              </div>
             ) : (
               <p className="rounded-xl border border-dashed border-slate-300/90 bg-slate-50/70 px-3 py-2.5 text-sm text-slate-500">
                 Everyone already has access to this document.
@@ -542,22 +618,39 @@ function ShareModal({
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleRevoke(user)}
-                  disabled={revokingId !== null}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {revokingId === user.id ? (
-                    <Loader2
-                      className="size-3.5 animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <UserMinus className="size-3.5" aria-hidden="true" />
-                  )}
-                  {revokingId === user.id ? 'Removing…' : 'Remove'}
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <select
+                    aria-label={`Permission for ${user.name}`}
+                    value={user.permission === 'read' ? 'read' : 'write'}
+                    onChange={(event) =>
+                      void handlePermissionChange(user, event.target.value)
+                    }
+                    disabled={isBusy}
+                    className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 shadow-2xs transition hover:bg-slate-50 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option value="write">Can edit</option>
+                    <option value="read">Can view</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleRevoke(user)}
+                    disabled={isBusy}
+                    aria-label={`Remove ${user.name}`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-xs font-medium text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60 sm:px-2"
+                  >
+                    {revokingId === user.id ? (
+                      <Loader2
+                        className="size-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <UserMinus className="size-3.5" aria-hidden="true" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {revokingId === user.id ? 'Removing…' : 'Remove'}
+                    </span>
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -600,6 +693,7 @@ function EditorSurface({ doc, activeUserId, users }) {
   const initialisedRef = useRef(false);
 
   const isOwner = doc.owner_id === activeUserId;
+  const isReadOnly = doc.permission === 'read';
   const ownerUser = users.find((user) => user.id === doc.owner_id);
 
   const editor = useEditor({
@@ -610,6 +704,7 @@ function EditorSurface({ doc, activeUserId, users }) {
       Underline,
     ],
     content: doc.content || '',
+    editable: !isReadOnly,
     editorProps: {
       attributes: {
         class: 'tiptap',
@@ -642,8 +737,13 @@ function EditorSurface({ doc, activeUserId, users }) {
     };
   }, [title, contentVersion, editor]);
 
-  const save = useCallback(async () => {
+  useEffect(() => {
     if (!editor) return;
+    editor.setEditable(!isReadOnly);
+  }, [editor, isReadOnly]);
+
+  const save = useCallback(async () => {
+    if (!editor || isReadOnly) return;
 
     const content = editor.getHTML();
     const nextTitle = title.trim() || 'Untitled document';
@@ -688,11 +788,11 @@ function EditorSurface({ doc, activeUserId, users }) {
       setSaveState('error');
       setSaveError(err.message || 'Could not save changes');
     }
-  }, [activeUserId, doc.id, editor, title]);
+  }, [activeUserId, doc.id, editor, isReadOnly, title]);
 
   // Debounced autosave whenever the title or document body changes.
   useEffect(() => {
-    if (!editor) return undefined;
+    if (!editor || isReadOnly) return undefined;
 
     const latest = latestRef.current;
     if (
@@ -711,7 +811,7 @@ function EditorSurface({ doc, activeUserId, users }) {
     }, AUTOSAVE_DELAY_MS);
 
     return () => clearTimeout(autosaveTimerRef.current);
-  }, [title, contentVersion, editor, save]);
+  }, [title, contentVersion, editor, isReadOnly, save]);
 
   useEffect(
     () => () => {
@@ -754,6 +854,7 @@ function EditorSurface({ doc, activeUserId, users }) {
   }
 
   function handleTitleBlur() {
+    if (isReadOnly) return;
     if (!title.trim()) setTitle('Untitled document');
   }
 
@@ -770,7 +871,11 @@ function EditorSurface({ doc, activeUserId, users }) {
               <span className="hidden sm:inline">Back to Workspace</span>
               <span className="sm:hidden">Back</span>
             </Link>
-            <SaveStatusPill state={saveState} message={saveError} />
+            {isReadOnly ? (
+              <ViewOnlyPill />
+            ) : (
+              <SaveStatusPill state={saveState} message={saveError} />
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -787,20 +892,22 @@ function EditorSurface({ doc, activeUserId, users }) {
               </button>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saveState === 'saving' || !editor}
-              aria-label="Save document"
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-medium text-slate-700 shadow-2xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
-            >
-              {saveState === 'saving' ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Save className="size-4" aria-hidden="true" />
-              )}
-              <span className="hidden sm:inline">Save</span>
-            </button>
+            {!isReadOnly ? (
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saveState === 'saving' || !editor}
+                aria-label="Save document"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-medium text-slate-700 shadow-2xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
+              >
+                {saveState === 'saving' ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save className="size-4" aria-hidden="true" />
+                )}
+                <span className="hidden sm:inline">Save</span>
+              </button>
+            ) : null}
 
             {isOwner ? (
               <button
@@ -827,9 +934,11 @@ function EditorSurface({ doc, activeUserId, users }) {
         </div>
       </div>
 
-      <div className="pointer-events-none sticky top-[125px] z-10 flex justify-center py-3">
-        <Toolbar editor={editor} />
-      </div>
+      {!isReadOnly ? (
+        <div className="pointer-events-none sticky top-[125px] z-10 flex justify-center py-3">
+          <Toolbar editor={editor} />
+        </div>
+      ) : null}
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-16 sm:px-6 lg:px-8">
         <div className="mt-4 min-h-[72vh] rounded-2xl border border-slate-200/80 bg-white px-6 py-10 shadow-sm shadow-slate-200/40 sm:px-14 sm:py-12">
@@ -838,10 +947,14 @@ function EditorSurface({ doc, activeUserId, users }) {
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             onBlur={handleTitleBlur}
+            readOnly={isReadOnly}
             placeholder="Untitled document"
             aria-label="Document title"
+            aria-readonly={isReadOnly}
             maxLength={200}
-            className="mb-2 w-full border-0 bg-transparent text-3xl font-bold tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none sm:text-4xl"
+            className={`mb-2 w-full border-0 bg-transparent text-3xl font-bold tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none sm:text-4xl ${
+              isReadOnly ? 'cursor-default' : ''
+            }`}
           />
 
           <div className="mb-8 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 pb-6 text-xs text-slate-400">
@@ -867,7 +980,9 @@ function EditorSurface({ doc, activeUserId, users }) {
         </div>
 
         <p className="mt-4 text-center text-[11px] text-slate-400">
-          Changes save automatically as you write.
+          {isReadOnly
+            ? 'You have view-only access to this document.'
+            : 'Changes save automatically as you write.'}
         </p>
       </div>
 

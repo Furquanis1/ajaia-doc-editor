@@ -7,7 +7,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
   Upload,
   UserMinus,
@@ -156,27 +155,36 @@ function DocumentCard({ doc, showOwner, onDelete, onRemove }) {
         </p>
       </div>
 
-      <div className="pointer-events-none relative z-10 mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs text-slate-400">
-        <span className="inline-flex items-center gap-1.5">
-          <Clock className="size-3.5" aria-hidden="true" />
-          Updated {formatUpdatedAt(doc.updated_at)}
+      <div className="pointer-events-none relative z-10 mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-slate-100 pt-3 text-xs text-slate-400">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <Clock className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            Updated {formatUpdatedAt(doc.updated_at)}
+          </span>
         </span>
 
         {isShared ? (
-          <span className="inline-flex max-w-[58%] items-center gap-1.5 truncate rounded-full bg-slate-50 px-2 py-0.5 font-medium text-slate-500 ring-1 ring-inset ring-slate-200/70">
-            <span
-              className="grid size-4 shrink-0 place-items-center rounded-full bg-indigo-100 text-[9px] font-semibold text-indigo-600"
-              aria-hidden="true"
-            >
-              {initials(doc.owner_name)}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate rounded-full bg-slate-50 px-2 py-0.5 font-medium text-slate-500 ring-1 ring-inset ring-slate-200/70">
+              <span
+                className="grid size-4 shrink-0 place-items-center rounded-full bg-indigo-100 text-[9px] font-semibold text-indigo-600"
+                aria-hidden="true"
+              >
+                {initials(doc.owner_name)}
+              </span>
+              <span className="truncate">Shared by {doc.owner_name}</span>
             </span>
-            <span className="truncate">Shared by {doc.owner_name}</span>
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 font-medium ring-1 ring-inset ${
+                doc.permission === 'read'
+                  ? 'bg-amber-50/80 text-amber-700 ring-amber-200/70'
+                  : 'bg-emerald-50/80 text-emerald-700 ring-emerald-200/70'
+              }`}
+            >
+              {doc.permission === 'read' ? 'View only' : 'Can edit'}
+            </span>
           </span>
-        ) : (
-          <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 font-medium text-slate-500 ring-1 ring-inset ring-slate-200/70">
-            Private
-          </span>
-        )}
+        ) : null}
       </div>
     </li>
   );
@@ -422,11 +430,7 @@ export default function Dashboard() {
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
       <section className="mb-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-100 bg-indigo-50/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600">
-            <Sparkles className="size-3.5" aria-hidden="true" />
-            Workspace
-          </span>
-          <h1 className="mt-3 font-serif text-4xl font-medium tracking-tight text-slate-900 sm:text-[2.75rem]">
+          <h1 className="font-serif text-4xl font-medium tracking-tight text-slate-900 sm:text-[2.75rem]">
             My Workspace
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-500">

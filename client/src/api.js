@@ -99,11 +99,16 @@ export function updateDocument(userId, documentId, patch) {
   });
 }
 
-export function shareDocument(userId, documentId, targetUserId) {
+export function shareDocument(
+  userId,
+  documentId,
+  targetUserId,
+  permission = 'write'
+) {
   return request(`/api/documents/${documentId}/share`, {
     userId,
     method: 'POST',
-    body: { userId: targetUserId },
+    body: { userId: targetUserId, permission },
   });
 }
 

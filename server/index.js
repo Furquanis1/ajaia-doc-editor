@@ -26,19 +26,25 @@ function parseId(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-/** Load a document and report whether `userId` may access it. */
+/** Load a document and report whether `userId` may access it, plus how. */
 async function loadDocumentForUser(docId, userId) {
   const doc = await get('SELECT * FROM documents WHERE id = ?', [docId]);
-  if (!doc) return { doc: null, allowed: false };
+  if (!doc) return { doc: null, allowed: false, permission: null };
 
-  if (doc.owner_id === userId) return { doc, allowed: true };
+  if (doc.owner_id === userId) {
+    return { doc, allowed: true, permission: 'owner' };
+  }
 
   const share = await get(
-    'SELECT 1 AS ok FROM document_shares WHERE doc_id = ? AND user_id = ?',
+    'SELECT permission FROM document_shares WHERE doc_id = ? AND user_id = ?',
     [docId, userId]
   );
 
-  return { doc, allowed: Boolean(share) };
+  return {
+    doc,
+    allowed: Boolean(share),
+    permission: share ? share.permission : null,
+  };
 }
 
 function forbidden(res, message = 'You do not have access to this document') {
@@ -107,7 +113,7 @@ app.get('/api/documents', async (req, res, next) => {
     );
 
     const shared = await all(
-      `SELECT d.*, u.name AS owner_name, u.email AS owner_email
+      `SELECT d.*, s.permission, u.name AS owner_name, u.email AS owner_email
          FROM documents d
          JOIN document_shares s ON s.doc_id = d.id
          JOIN users u ON u.id = d.owner_id
@@ -167,7 +173,10 @@ app.get('/api/documents/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Bad Request', message: 'Invalid document id' });
     }
 
-    const { doc, allowed } = await loadDocumentForUser(docId, req.userId);
+    const { doc, allowed, permission } = await loadDocumentForUser(
+      docId,
+      req.userId
+    );
 
     if (!doc) {
       return res.status(404).json({
@@ -179,7 +188,7 @@ app.get('/api/documents/:id', async (req, res, next) => {
     if (!allowed) return forbidden(res);
 
     const sharedWith = await all(
-      `SELECT u.id, u.name, u.email
+      `SELECT u.id, u.name, u.email, s.permission
          FROM document_shares s
          JOIN users u ON u.id = s.user_id
         WHERE s.doc_id = ?
@@ -187,7 +196,7 @@ app.get('/api/documents/:id', async (req, res, next) => {
       [docId]
     );
 
-    res.json({ ...doc, sharedWith });
+    res.json({ ...doc, permission, sharedWith });
   } catch (err) {
     next(err);
   }
@@ -201,7 +210,10 @@ app.put('/api/documents/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Bad Request', message: 'Invalid document id' });
     }
 
-    const { doc, allowed } = await loadDocumentForUser(docId, req.userId);
+    const { doc, allowed, permission } = await loadDocumentForUser(
+      docId,
+      req.userId
+    );
 
     if (!doc) {
       return res.status(404).json({
@@ -211,6 +223,10 @@ app.put('/api/documents/:id', async (req, res, next) => {
     }
 
     if (!allowed) return forbidden(res);
+
+    if (permission === 'read') {
+      return forbidden(res, 'You only have view access to this document');
+    }
 
     const body = req.body || {};
     const fields = [];
@@ -310,6 +326,17 @@ app.post('/api/documents/:id/share', async (req, res, next) => {
       });
     }
 
+    const requestedPermission = (req.body || {}).permission;
+    const permission =
+      requestedPermission === undefined ? 'write' : requestedPermission;
+
+    if (permission !== 'read' && permission !== 'write') {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: "permission must be 'read' or 'write'",
+      });
+    }
+
     const doc = await get('SELECT * FROM documents WHERE id = ?', [docId]);
 
     if (!doc) {
@@ -342,13 +369,17 @@ app.post('/api/documents/:id/share', async (req, res, next) => {
     }
 
     await run(
-      'INSERT OR IGNORE INTO document_shares (doc_id, user_id) VALUES (?, ?)',
-      [docId, targetId]
+      `INSERT INTO document_shares (doc_id, user_id, permission)
+       VALUES (?, ?, ?)
+       ON CONFLICT(doc_id, user_id)
+       DO UPDATE SET permission = excluded.permission`,
+      [docId, targetId, permission]
     );
 
     res.status(201).json({
       doc_id: docId,
       user_id: targetId,
+      permission,
       user: target,
     });
   } catch (err) {

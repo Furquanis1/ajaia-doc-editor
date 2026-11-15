@@ -78,6 +78,7 @@ describe('documents API and access control', () => {
     expect(share.body).toMatchObject({
       doc_id: documentId,
       user_id: 2,
+      permission: 'write',
       user: { email: 'bob@demo.com' },
     });
 
@@ -120,7 +121,7 @@ describe('documents API and access control', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.sharedWith)).toBe(true);
     expect(res.body.sharedWith).toEqual([
-      { id: 2, name: 'Bob', email: 'bob@demo.com' },
+      { id: 2, name: 'Bob', email: 'bob@demo.com', permission: 'write' },
     ]);
   });
 
@@ -212,5 +213,86 @@ describe('documents API and access control', () => {
 
     expect(fetched.status).toBe(404);
     expect(fetched.body.error).toBe('Not Found');
+  });
+
+  test('12. Read-only shares can view but not edit until upgraded', async () => {
+    const create = await request(app)
+      .post('/api/documents')
+      .set('x-user-id', '1')
+      .send({ title: 'Permission Plan', content: 'Original content' });
+
+    expect(create.status).toBe(201);
+    const readOnlyId = create.body.id;
+
+    const readShare = await request(app)
+      .post(`/api/documents/${readOnlyId}/share`)
+      .set('x-user-id', '1')
+      .send({ userId: 2, permission: 'read' });
+
+    expect(readShare.status).toBe(201);
+    expect(readShare.body).toMatchObject({
+      doc_id: readOnlyId,
+      user_id: 2,
+      permission: 'read',
+      user: { email: 'bob@demo.com' },
+    });
+
+    // Bob can read the document, and sees that his access is view-only.
+    const bobFetch = await request(app)
+      .get(`/api/documents/${readOnlyId}`)
+      .set('x-user-id', '2');
+
+    expect(bobFetch.status).toBe(200);
+    expect(bobFetch.body.permission).toBe('read');
+    expect(bobFetch.body.sharedWith).toEqual([
+      { id: 2, name: 'Bob', email: 'bob@demo.com', permission: 'read' },
+    ]);
+
+    const bobList = await request(app)
+      .get('/api/documents')
+      .set('x-user-id', '2');
+
+    expect(bobList.status).toBe(200);
+    expect(
+      bobList.body.shared.find((doc) => doc.id === readOnlyId)
+    ).toMatchObject({ id: readOnlyId, permission: 'read' });
+
+    // View-only collaborators cannot update the document.
+    const blocked = await request(app)
+      .put(`/api/documents/${readOnlyId}`)
+      .set('x-user-id', '2')
+      .send({ content: 'Unauthorized edit' });
+
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error).toBe('Forbidden');
+    expect(blocked.body.message).toBe(
+      'You only have view access to this document'
+    );
+
+    // The owner upgrades Bob to write access by re-sharing.
+    const upgrade = await request(app)
+      .post(`/api/documents/${readOnlyId}/share`)
+      .set('x-user-id', '1')
+      .send({ userId: 2, permission: 'write' });
+
+    expect(upgrade.status).toBe(201);
+    expect(upgrade.body.permission).toBe('write');
+
+    const allowed = await request(app)
+      .put(`/api/documents/${readOnlyId}`)
+      .set('x-user-id', '2')
+      .send({ content: 'Updated by Bob' });
+
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.content).toBe('Updated by Bob');
+
+    // Anything other than 'read' or 'write' is rejected.
+    const invalid = await request(app)
+      .post(`/api/documents/${readOnlyId}/share`)
+      .set('x-user-id', '1')
+      .send({ userId: 3, permission: 'admin' });
+
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error).toBe('Bad Request');
   });
 });

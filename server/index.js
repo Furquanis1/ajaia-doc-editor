@@ -7,6 +7,7 @@
  * `app` is exported without listening so tests can drive it with supertest.
  */
 
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -47,7 +48,7 @@ function forbidden(res, message = 'You do not have access to this document') {
 // --- Auth middleware --------------------------------------------------------
 // Every request must carry `x-user-id`. We only validate that it is present and
 // numeric here; existence is checked where user data is actually read.
-app.use((req, res, next) => {
+app.use('/api', (req, res, next) => {
   const header = req.header('x-user-id');
 
   if (header === undefined || String(header).trim() === '') {
@@ -309,13 +310,22 @@ app.post('/api/documents/:id/share', async (req, res, next) => {
   }
 });
 
-// --- Fallbacks --------------------------------------------------------------
+// --- Frontend & Fallbacks ---------------------------------------------------
 
-app.use((req, res) => {
+const clientDist = path.join(__dirname, '../client/dist');
+app.use(express.static(clientDist));
+
+// Unmatched API routes return JSON 404
+app.use('/api', (req, res) => {
   res.status(404).json({
     error: 'Not Found',
     message: `No route ${req.method} ${req.path}`,
   });
+});
+
+// Client-side routing fallback for React Router
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientDist, 'index.html'));
 });
 
 app.use((err, req, res, next) => {

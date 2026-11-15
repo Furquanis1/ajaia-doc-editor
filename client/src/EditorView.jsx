@@ -28,10 +28,16 @@ import {
   Send,
   Share2,
   Underline as UnderlineIcon,
+  UserMinus,
   X,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { getDocument, shareDocument, updateDocument } from './api';
+import {
+  getDocument,
+  revokeDocumentShare,
+  shareDocument,
+  updateDocument,
+} from './api';
 
 const AUTOSAVE_DELAY_MS = 800;
 const SAVED_INDICATOR_MS = 2000;
@@ -210,13 +216,24 @@ function SaveIndicator({ state, message }) {
 
 // --- Share modal ------------------------------------------------------------
 
-function ShareModal({ doc, activeUserId, users, onClose }) {
-  const recipients = users.filter((user) => user.id !== doc.owner_id);
+function ShareModal({
+  doc,
+  activeUserId,
+  users,
+  sharedWith,
+  setSharedWith,
+  onClose,
+}) {
+  const sharedIds = new Set(sharedWith.map((user) => user.id));
+  const recipients = users.filter(
+    (user) => user.id !== doc.owner_id && !sharedIds.has(user.id)
+  );
   const [selectedUserId, setSelectedUserId] = useState(
     recipients.length > 0 ? String(recipients[0].id) : ''
   );
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
+  const [revokingId, setRevokingId] = useState(null);
   const selectRef = useRef(null);
   const isSaving = status === 'saving';
 
@@ -244,6 +261,16 @@ function ShareModal({ doc, activeUserId, users, onClose }) {
     return () => window.document.removeEventListener('keydown', handleKeyDown);
   }, [isSaving, onClose]);
 
+  // Keep the dropdown selection valid as collaborators are added or removed.
+  useEffect(() => {
+    const stillAvailable = recipients.some(
+      (user) => String(user.id) === selectedUserId
+    );
+    if (stillAvailable) return;
+
+    setSelectedUserId(recipients.length > 0 ? String(recipients[0].id) : '');
+  }, [recipients, selectedUserId]);
+
   function handleSelectionChange(event) {
     setSelectedUserId(event.target.value);
     if (status !== 'idle') {
@@ -267,15 +294,46 @@ function ShareModal({ doc, activeUserId, users, onClose }) {
 
     try {
       const result = await shareDocument(activeUserId, doc.id, targetUserId);
+      const sharedUser =
+        result?.user || users.find((user) => user.id === targetUserId) || null;
       const recipientName =
-        result?.user?.name ||
+        sharedUser?.name ||
         recipients.find((user) => user.id === targetUserId)?.name ||
         'this user';
+
+      if (sharedUser) {
+        setSharedWith((current) =>
+          current.some((user) => user.id === sharedUser.id)
+            ? current
+            : [...current, sharedUser]
+        );
+      }
+
       setStatus('success');
       setMessage(`Shared with ${recipientName}.`);
     } catch (err) {
       setStatus('error');
       setMessage(err.message || 'Could not share this document.');
+    }
+  }
+
+  async function handleRevoke(user) {
+    setRevokingId(user.id);
+    setStatus('idle');
+    setMessage('');
+
+    try {
+      await revokeDocumentShare(activeUserId, doc.id, user.id);
+      setSharedWith((current) =>
+        current.filter((entry) => entry.id !== user.id)
+      );
+      setStatus('success');
+      setMessage(`Removed ${user.name}.`);
+    } catch (err) {
+      setStatus('error');
+      setMessage(err.message || 'Could not remove access.');
+    } finally {
+      setRevokingId(null);
     }
   }
 
@@ -400,6 +458,52 @@ function ShareModal({ doc, activeUserId, users, onClose }) {
             </button>
           </div>
         </form>
+
+        <section className="mt-5 border-t border-slate-100 pt-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            People with access
+          </h3>
+
+          {sharedWith.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">
+              Only you have access right now.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {sharedWith.map((user) => (
+                <li
+                  key={user.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900">
+                      {user.name}
+                    </p>
+                    <p className="truncate text-xs text-slate-500">
+                      {user.email}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRevoke(user)}
+                    disabled={revokingId !== null}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {revokingId === user.id ? (
+                      <Loader2
+                        className="size-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <UserMinus className="size-3.5" aria-hidden="true" />
+                    )}
+                    {revokingId === user.id ? 'Removing…' : 'Remove'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -414,6 +518,7 @@ function EditorSurface({ doc, activeUserId, users }) {
   const [saveError, setSaveError] = useState(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(doc.updated_at);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [sharedWith, setSharedWith] = useState(doc.sharedWith || []);
   const [, setToolbarTick] = useReducer((tick) => tick + 1, 0);
 
   const autosaveTimerRef = useRef(null);
@@ -637,6 +742,8 @@ function EditorSurface({ doc, activeUserId, users }) {
           doc={doc}
           activeUserId={activeUserId}
           users={users}
+          sharedWith={sharedWith}
+          setSharedWith={setSharedWith}
           onClose={() => setIsShareOpen(false)}
         />
       ) : null}

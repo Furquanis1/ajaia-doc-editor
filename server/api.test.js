@@ -111,4 +111,52 @@ describe('documents API and access control', () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('Forbidden');
   });
+
+  test('6. GET /api/documents/:id returns sharedWith', async () => {
+    const res = await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('x-user-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.sharedWith)).toBe(true);
+    expect(res.body.sharedWith).toEqual([
+      { id: 2, name: 'Bob', email: 'bob@demo.com' },
+    ]);
+  });
+
+  test('7. A non-owner cannot revoke a share', async () => {
+    const res = await request(app)
+      .delete(`/api/documents/${documentId}/share/3`)
+      .set('x-user-id', '2');
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Forbidden');
+  });
+
+  test("8. The owner can revoke Bob's access", async () => {
+    const revoke = await request(app)
+      .delete(`/api/documents/${documentId}/share/2`)
+      .set('x-user-id', '1');
+
+    expect(revoke.status).toBe(200);
+    expect(revoke.body).toEqual({
+      ok: true,
+      doc_id: documentId,
+      user_id: 2,
+    });
+
+    const bobFetch = await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('x-user-id', '2');
+
+    expect(bobFetch.status).toBe(403);
+    expect(bobFetch.body.error).toBe('Forbidden');
+
+    const ownerFetch = await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('x-user-id', '1');
+
+    expect(ownerFetch.status).toBe(200);
+    expect(ownerFetch.body.sharedWith).toEqual([]);
+  });
 });

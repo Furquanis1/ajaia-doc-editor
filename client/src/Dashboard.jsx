@@ -12,6 +12,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { marked } from 'marked';
 import { useAuth } from './AuthContext';
 import { createDocument, getDocuments } from './api';
 
@@ -246,9 +247,10 @@ export default function Dashboard() {
 
     try {
       const text = await file.text();
+      const isMarkdown = file.name.toLowerCase().endsWith('.md');
       const doc = await createDocument(activeUserId, {
         title: titleFromFileName(file.name),
-        content: textToHtml(text),
+        content: isMarkdown ? marked.parse(text, { async: false }) : textToHtml(text),
       });
       navigate(`/doc/${doc.id}`);
     } catch (err) {

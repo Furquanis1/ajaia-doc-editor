@@ -178,7 +178,16 @@ app.get('/api/documents/:id', async (req, res, next) => {
 
     if (!allowed) return forbidden(res);
 
-    res.json(doc);
+    const sharedWith = await all(
+      `SELECT u.id, u.name, u.email
+         FROM document_shares s
+         JOIN users u ON u.id = s.user_id
+        WHERE s.doc_id = ?
+        ORDER BY u.name ASC`,
+      [docId]
+    );
+
+    res.json({ ...doc, sharedWith });
   } catch (err) {
     next(err);
   }
@@ -305,6 +314,43 @@ app.post('/api/documents/:id/share', async (req, res, next) => {
       user_id: targetId,
       user: target,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Revoke a document share: owner only.
+app.delete('/api/documents/:id/share/:userId', async (req, res, next) => {
+  try {
+    const docId = parseId(req.params.id);
+    const targetId = parseId(req.params.userId);
+
+    if (!docId || !targetId) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Document id and user id must be positive integers',
+      });
+    }
+
+    const doc = await get('SELECT * FROM documents WHERE id = ?', [docId]);
+
+    if (!doc) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: `No document with id ${docId}`,
+      });
+    }
+
+    if (doc.owner_id !== req.userId) {
+      return forbidden(res, 'Only the document owner can revoke access');
+    }
+
+    await run(
+      'DELETE FROM document_shares WHERE doc_id = ? AND user_id = ?',
+      [docId, targetId]
+    );
+
+    res.json({ ok: true, doc_id: docId, user_id: targetId });
   } catch (err) {
     next(err);
   }

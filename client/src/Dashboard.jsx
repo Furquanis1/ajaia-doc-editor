@@ -8,13 +8,20 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Trash2,
   Upload,
+  UserMinus,
   Users,
   X,
 } from 'lucide-react';
 import { marked } from 'marked';
 import { useAuth } from './AuthContext';
-import { createDocument, getDocuments } from './api';
+import {
+  createDocument,
+  deleteDocument,
+  getDocuments,
+  revokeDocumentShare,
+} from './api';
 
 /** Imports must stay under 2 MB (2 * 1024 * 1024 bytes). */
 const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -65,9 +72,13 @@ function formatUpdatedAt(value) {
   });
 }
 
-function DocumentCard({ doc, showOwner }) {
+function DocumentCard({ doc, showOwner, onDelete, onRemove }) {
+  const actionHandler = showOwner ? onRemove : onDelete;
+  const ActionIcon = showOwner ? UserMinus : Trash2;
+  const actionLabel = showOwner ? 'Remove' : 'Delete';
+
   return (
-    <li className="group flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-200 hover:shadow-md">
+    <li className="group flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex min-w-0 items-center gap-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
           <FileText className="size-5" aria-hidden="true" />
@@ -91,14 +102,27 @@ function DocumentCard({ doc, showOwner }) {
         </div>
       </div>
 
-      <Link
-        to={`/doc/${doc.id}`}
-        aria-label={`Open ${doc.title}`}
-        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-      >
-        Open
-        <ArrowUpRight className="size-3.5" aria-hidden="true" />
-      </Link>
+      <div className="flex shrink-0 items-center gap-2">
+        <Link
+          to={`/doc/${doc.id}`}
+          aria-label={`Open ${doc.title}`}
+          className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-3 py-1 text-sm font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          Open
+          <ArrowUpRight className="size-3.5" aria-hidden="true" />
+        </Link>
+        {actionHandler ? (
+          <button
+            type="button"
+            onClick={() => actionHandler(doc)}
+            aria-label={`${actionLabel} ${doc.title}`}
+            className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-3 py-1 text-sm font-medium text-rose-600 transition hover:bg-rose-50 hover:text-rose-700"
+          >
+            <ActionIcon className="size-3.5" aria-hidden="true" />
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -109,6 +133,8 @@ function DocumentSection({
   documents,
   emptyMessage,
   showOwner = false,
+  onDelete,
+  onRemove,
 }) {
   return (
     <section aria-label={title}>
@@ -130,7 +156,13 @@ function DocumentSection({
       ) : (
         <ul className="space-y-3">
           {documents.map((doc) => (
-            <DocumentCard key={doc.id} doc={doc} showOwner={showOwner} />
+            <DocumentCard
+              key={doc.id}
+              doc={doc}
+              showOwner={showOwner}
+              onDelete={onDelete}
+              onRemove={onRemove}
+            />
           ))}
         </ul>
       )}
@@ -259,6 +291,34 @@ export default function Dashboard() {
     }
   }
 
+  async function handleDeleteDocument(doc) {
+    if (!window.confirm(`Permanently delete "${doc.title}"?`)) return;
+
+    try {
+      await deleteDocument(activeUserId, doc.id);
+      setDocuments((current) => ({
+        ...current,
+        owned: current.owned.filter((entry) => entry.id !== doc.id),
+      }));
+    } catch (err) {
+      setActionError(err.message || 'Could not delete this document.');
+    }
+  }
+
+  async function handleRemoveShared(doc) {
+    if (!window.confirm(`Remove "${doc.title}" from your dashboard?`)) return;
+
+    try {
+      await revokeDocumentShare(activeUserId, doc.id, activeUserId);
+      setDocuments((current) => ({
+        ...current,
+        shared: current.shared.filter((entry) => entry.id !== doc.id),
+      }));
+    } catch (err) {
+      setActionError(err.message || 'Could not remove this document.');
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
       <section className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -355,6 +415,7 @@ export default function Dashboard() {
             icon={FolderOpen}
             documents={owned}
             emptyMessage={`${activeUser.name} has not created any documents yet.`}
+            onDelete={handleDeleteDocument}
           />
           <DocumentSection
             title="Shared with Me"
@@ -362,6 +423,7 @@ export default function Dashboard() {
             documents={shared}
             emptyMessage="Nothing has been shared with this user yet."
             showOwner
+            onRemove={handleRemoveShared}
           />
         </div>
       )}

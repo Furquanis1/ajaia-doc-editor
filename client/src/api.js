@@ -114,4 +114,11 @@ export function revokeDocumentShare(userId, documentId, targetUserId) {
   });
 }
 
+export function deleteDocument(userId, documentId) {
+  return request(`/api/documents/${documentId}`, {
+    userId,
+    method: 'DELETE',
+  });
+}
+
 export { API_URL };

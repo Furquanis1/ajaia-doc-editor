@@ -159,4 +159,58 @@ describe('documents API and access control', () => {
     expect(ownerFetch.status).toBe(200);
     expect(ownerFetch.body.sharedWith).toEqual([]);
   });
+
+  test('9. A shared user can remove their own access', async () => {
+    const reshare = await request(app)
+      .post(`/api/documents/${documentId}/share`)
+      .set('x-user-id', '1')
+      .send({ userId: 2 });
+
+    expect(reshare.status).toBe(201);
+
+    const selfRevoke = await request(app)
+      .delete(`/api/documents/${documentId}/share/2`)
+      .set('x-user-id', '2');
+
+    expect(selfRevoke.status).toBe(200);
+    expect(selfRevoke.body).toEqual({
+      ok: true,
+      doc_id: documentId,
+      user_id: 2,
+    });
+
+    const bobFetch = await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('x-user-id', '2');
+
+    expect(bobFetch.status).toBe(403);
+  });
+
+  test('10. A non-owner cannot delete the document', async () => {
+    const res = await request(app)
+      .delete(`/api/documents/${documentId}`)
+      .set('x-user-id', '2');
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Forbidden');
+    expect(res.body.message).toBe(
+      'You do not have permission to delete this document'
+    );
+  });
+
+  test('11. The owner can delete the document', async () => {
+    const res = await request(app)
+      .delete(`/api/documents/${documentId}`)
+      .set('x-user-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: documentId });
+
+    const fetched = await request(app)
+      .get(`/api/documents/${documentId}`)
+      .set('x-user-id', '1');
+
+    expect(fetched.status).toBe(404);
+    expect(fetched.body.error).toBe('Not Found');
+  });
 });

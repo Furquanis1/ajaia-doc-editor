@@ -257,6 +257,43 @@ app.put('/api/documents/:id', async (req, res, next) => {
   }
 });
 
+// Delete a document and its shares: owner only.
+app.delete('/api/documents/:id', async (req, res, next) => {
+  try {
+    const docId = parseId(req.params.id);
+
+    if (!docId) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Invalid document id',
+      });
+    }
+
+    const doc = await get('SELECT * FROM documents WHERE id = ?', [docId]);
+
+    if (!doc) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: `No document with id ${docId}`,
+      });
+    }
+
+    if (doc.owner_id !== req.userId) {
+      return forbidden(
+        res,
+        'You do not have permission to delete this document'
+      );
+    }
+
+    await run('DELETE FROM document_shares WHERE doc_id = ?', [docId]);
+    await run('DELETE FROM documents WHERE id = ?', [docId]);
+
+    res.json({ ok: true, id: docId });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Share a document: owner only.
 app.post('/api/documents/:id/share', async (req, res, next) => {
   try {
@@ -341,8 +378,11 @@ app.delete('/api/documents/:id/share/:userId', async (req, res, next) => {
       });
     }
 
-    if (doc.owner_id !== req.userId) {
-      return forbidden(res, 'Only the document owner can revoke access');
+    if (doc.owner_id !== req.userId && targetId !== req.userId) {
+      return forbidden(
+        res,
+        'You can only remove your own access to this document'
+      );
     }
 
     await run(

@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -27,12 +27,14 @@ import {
   Save,
   Send,
   Share2,
+  Trash2,
   Underline as UnderlineIcon,
   UserMinus,
   X,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import {
+  deleteDocument,
   getDocument,
   revokeDocumentShare,
   shareDocument,
@@ -512,6 +514,7 @@ function ShareModal({
 // --- Editor surface ---------------------------------------------------------
 
 function EditorSurface({ doc, activeUserId, users }) {
+  const navigate = useNavigate();
   const [title, setTitle] = useState(doc.title);
   const [contentVersion, setContentVersion] = useState(0);
   const [saveState, setSaveState] = useState('idle');
@@ -653,6 +656,38 @@ function EditorSurface({ doc, activeUserId, users }) {
     []
   );
 
+  async function handleDeleteDocument() {
+    if (!window.confirm('Permanently delete this document?')) return;
+
+    clearTimeout(autosaveTimerRef.current);
+    clearTimeout(savedIndicatorRef.current);
+
+    try {
+      await deleteDocument(activeUserId, doc.id);
+      navigate('/');
+    } catch (err) {
+      setSaveState('error');
+      setSaveError(err.message || 'Could not delete this document');
+    }
+  }
+
+  async function handleRemoveSelf() {
+    if (!window.confirm('Remove this shared document from your dashboard?')) {
+      return;
+    }
+
+    clearTimeout(autosaveTimerRef.current);
+    clearTimeout(savedIndicatorRef.current);
+
+    try {
+      await revokeDocumentShare(activeUserId, doc.id, activeUserId);
+      navigate('/');
+    } catch (err) {
+      setSaveState('error');
+      setSaveError(err.message || 'Could not remove this document');
+    }
+  }
+
   function handleTitleBlur() {
     if (!title.trim()) setTitle('Untitled document');
   }
@@ -694,6 +729,25 @@ function EditorSurface({ doc, activeUserId, users }) {
             )}
             Save
           </button>
+          {doc.owner_id === activeUserId ? (
+            <button
+              type="button"
+              onClick={() => void handleDeleteDocument()}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              Delete
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleRemoveSelf()}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50"
+            >
+              <UserMinus className="size-4" aria-hidden="true" />
+              Remove from my list
+            </button>
+          )}
         </div>
       </div>
 

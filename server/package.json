@@ -1,0 +1,25 @@
+{
+  "name": "collab-doc-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Express + SQLite API for the lightweight collaborative document editor",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "db:init": "node db.js",
+    "test": "jest --detectOpenHandles"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  }
+}

@@ -1,10 +1,9 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 /**
- * Demo identities. These mirror the users seeded in `server/db.js`.
- * Phase 4 (real auth) will replace this with a login flow.
+ * Workspace identities. These mirror the users seeded in `server/db.js`.
  */
-export const DEMO_USERS = [
+export const WORKSPACE_USERS = [
   { id: 1, name: 'Alice', email: 'alice@demo.com', color: 'bg-rose-500' },
   { id: 2, name: 'Bob', email: 'bob@demo.com', color: 'bg-sky-500' },
   { id: 3, name: 'Charlie', email: 'charlie@demo.com', color: 'bg-amber-500' },
@@ -18,7 +17,7 @@ const AuthContext = createContext(null);
 function readStoredUserId() {
   try {
     const stored = Number(window.localStorage.getItem(STORAGE_KEY));
-    return DEMO_USERS.some((user) => user.id === stored)
+    return WORKSPACE_USERS.some((user) => user.id === stored)
       ? stored
       : DEFAULT_USER_ID;
   } catch {
@@ -31,24 +30,25 @@ export function AuthProvider({ children }) {
 
   const setActiveUserId = useCallback((userId) => {
     const nextId = Number(userId);
-    if (!DEMO_USERS.some((user) => user.id === nextId)) return;
+    if (!WORKSPACE_USERS.some((user) => user.id === nextId)) return;
 
     setActiveUserIdState(nextId);
     try {
       window.localStorage.setItem(STORAGE_KEY, String(nextId));
     } catch {
-      // Private browsing / disabled storage: in-memory state still works.
+      // Storage can be unavailable; in-memory state still works.
     }
   }, []);
 
   const activeUser =
-    DEMO_USERS.find((user) => user.id === activeUserId) ?? DEMO_USERS[0];
+    WORKSPACE_USERS.find((user) => user.id === activeUserId) ??
+    WORKSPACE_USERS[0];
 
   const value = useMemo(
     () => ({
       activeUserId,
       activeUser,
-      users: DEMO_USERS,
+      users: WORKSPACE_USERS,
       setActiveUserId,
     }),
     [activeUserId, activeUser, setActiveUserId]

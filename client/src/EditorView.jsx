@@ -14,7 +14,6 @@ import {
   AlertCircle,
   ArrowLeft,
   Bold,
-  Check,
   CheckCircle2,
   FileQuestion,
   Heading1,
@@ -26,10 +25,10 @@ import {
   Lock,
   Save,
   Send,
-  Share2,
   Trash2,
   Underline as UnderlineIcon,
   UserMinus,
+  UserPlus,
   X,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
@@ -42,7 +41,6 @@ import {
 } from './api';
 
 const AUTOSAVE_DELAY_MS = 800;
-const SAVED_INDICATOR_MS = 2000;
 
 /** SQLite stores `YYYY-MM-DD HH:MM:SS` in UTC; render it in local time. */
 function formatTimestamp(value) {
@@ -60,6 +58,23 @@ function formatTimestamp(value) {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function initials(name) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function colorFor(userId, users) {
+  return (
+    users.find((user) => user.id === userId)?.color ?? 'bg-slate-500'
+  );
 }
 
 // --- Toolbar ----------------------------------------------------------------
@@ -130,7 +145,7 @@ function Toolbar({ editor }) {
     <div
       role="toolbar"
       aria-label="Text formatting"
-      className="flex flex-wrap items-center gap-1"
+      className="pointer-events-auto inline-flex items-center gap-1 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-1.5 shadow-sm shadow-slate-200/50 backdrop-blur-md"
     >
       {FORMAT_BUTTONS.map((button, index) => {
         const previous = FORMAT_BUTTONS[index - 1];
@@ -151,10 +166,10 @@ function Toolbar({ editor }) {
               title={button.label}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => button.run(editor)}
-              className={`grid size-8 place-items-center rounded-md transition ${
+              className={`grid size-8 place-items-center rounded-lg transition ${
                 active
-                  ? 'bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'bg-indigo-50 font-semibold text-indigo-600'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >
               <button.Icon className="size-4" aria-hidden="true" />
@@ -168,40 +183,46 @@ function Toolbar({ editor }) {
 
 // --- Save status ------------------------------------------------------------
 
-function SaveIndicator({ state, message }) {
-  if (state === 'saving') {
-    return (
-      <span
-        aria-live="polite"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500"
-      >
-        <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-        Saving…
-      </span>
-    );
-  }
-
-  if (state === 'saved') {
-    return (
-      <span
-        role="status"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600"
-      >
-        <Check className="size-4" aria-hidden="true" />
-        Saved!
-      </span>
-    );
-  }
-
+function SaveStatusPill({ state, message }) {
   if (state === 'error') {
     return (
       <span
         role="alert"
         title={message}
-        className="inline-flex max-w-[16rem] items-center gap-1.5 truncate text-xs font-medium text-rose-600"
+        className="inline-flex max-w-[10rem] items-center gap-1.5 truncate rounded-full border border-rose-200/80 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 sm:max-w-[16rem]"
       >
-        <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+        <AlertCircle className="size-3.5 shrink-0" aria-hidden="true" />
         {message || 'Save failed'}
+      </span>
+    );
+  }
+
+  if (state === 'saving') {
+    return (
+      <span
+        aria-live="polite"
+        className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+      >
+        <span
+          className="size-1.5 animate-pulse rounded-full bg-amber-500"
+          aria-hidden="true"
+        />
+        Saving…
+      </span>
+    );
+  }
+
+  if (state === 'dirty') {
+    return (
+      <span
+        aria-live="polite"
+        className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+      >
+        <span
+          className="size-1.5 rounded-full bg-amber-400"
+          aria-hidden="true"
+        />
+        Unsaved changes
       </span>
     );
   }
@@ -209,9 +230,13 @@ function SaveIndicator({ state, message }) {
   return (
     <span
       aria-live="polite"
-      className="text-xs font-medium text-slate-400"
+      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
     >
-      {state === 'dirty' ? 'Unsaved changes' : 'All changes saved'}
+      <span
+        className="size-1.5 rounded-full bg-emerald-500"
+        aria-hidden="true"
+      />
+      Saved
     </span>
   );
 }
@@ -226,6 +251,7 @@ function ShareModal({
   setSharedWith,
   onClose,
 }) {
+  const ownerUser = users.find((user) => user.id === doc.owner_id);
   const sharedIds = new Set(sharedWith.map((user) => user.id));
   const recipients = users.filter(
     (user) => user.id !== doc.owner_id && !sharedIds.has(user.id)
@@ -341,7 +367,7 @@ function ShareModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !isSaving) onClose();
       }}
@@ -350,17 +376,17 @@ function ShareModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-dialog-title"
-        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-6 shadow-2xl"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
-              <Share2 className="size-5" aria-hidden="true" />
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-xs">
+              <UserPlus className="size-5" aria-hidden="true" />
             </span>
             <div>
               <h2
                 id="share-dialog-title"
-                className="text-base font-semibold text-slate-900"
+                className="text-base font-semibold tracking-tight text-slate-900"
               >
                 Share document
               </h2>
@@ -385,7 +411,7 @@ function ShareModal({
           <div>
             <label
               htmlFor="share-recipient"
-              className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+              className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
             >
               Share with
             </label>
@@ -396,7 +422,7 @@ function ShareModal({
                 value={selectedUserId}
                 onChange={handleSelectionChange}
                 disabled={isSaving}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:cursor-not-allowed disabled:bg-slate-50"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-2xs transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
               >
                 {recipients.map((user) => (
                   <option key={user.id} value={user.id}>
@@ -405,8 +431,8 @@ function ShareModal({
                 ))}
               </select>
             ) : (
-              <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                Every demo user already has access to this document.
+              <p className="rounded-xl border border-dashed border-slate-300/90 bg-slate-50/70 px-3 py-2.5 text-sm text-slate-500">
+                Everyone already has access to this document.
               </p>
             )}
           </div>
@@ -414,7 +440,7 @@ function ShareModal({
           {status === 'success' ? (
             <p
               role="status"
-              className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+              className="flex items-start gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
             >
               <CheckCircle2
                 className="mt-0.5 size-4 shrink-0"
@@ -427,7 +453,7 @@ function ShareModal({
           {status === 'error' ? (
             <p
               role="alert"
-              className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+              className="flex items-start gap-2 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-sm text-rose-700"
             >
               <AlertCircle
                 className="mt-0.5 size-4 shrink-0"
@@ -442,14 +468,14 @@ function ShareModal({
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || recipients.length === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSaving ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -462,21 +488,51 @@ function ShareModal({
         </form>
 
         <section className="mt-5 border-t border-slate-100 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             People with access
           </h3>
 
-          {sharedWith.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">
-              Only you have access right now.
-            </p>
-          ) : (
-            <ul className="mt-2 space-y-2">
-              {sharedWith.map((user) => (
-                <li
-                  key={user.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+          <ul className="mt-3 space-y-2">
+            <li className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-slate-50/60 px-3 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className={`grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white ${colorFor(
+                    doc.owner_id,
+                    users
+                  )}`}
+                  aria-hidden="true"
                 >
+                  {initials(ownerUser?.name)}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-900">
+                    {ownerUser?.name ?? 'Document owner'}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {ownerUser?.email ?? ''}
+                  </p>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 ring-1 ring-inset ring-slate-200/80">
+                Owner
+              </span>
+            </li>
+
+            {sharedWith.map((user) => (
+              <li
+                key={user.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/70 px-3 py-2.5"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className={`grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white ${colorFor(
+                      user.id,
+                      users
+                    )}`}
+                    aria-hidden="true"
+                  >
+                    {initials(user.name)}
+                  </span>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-900">
                       {user.name}
@@ -485,26 +541,32 @@ function ShareModal({
                       {user.email}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleRevoke(user)}
-                    disabled={revokingId !== null}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {revokingId === user.id ? (
-                      <Loader2
-                        className="size-3.5 animate-spin"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <UserMinus className="size-3.5" aria-hidden="true" />
-                    )}
-                    {revokingId === user.id ? 'Removing…' : 'Remove'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleRevoke(user)}
+                  disabled={revokingId !== null}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {revokingId === user.id ? (
+                    <Loader2
+                      className="size-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <UserMinus className="size-3.5" aria-hidden="true" />
+                  )}
+                  {revokingId === user.id ? 'Removing…' : 'Remove'}
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {sharedWith.length === 0 ? (
+            <p className="mt-3 text-xs text-slate-400">
+              Only the owner has access right now.
+            </p>
+          ) : null}
         </section>
       </div>
     </div>
@@ -536,6 +598,9 @@ function EditorSurface({ doc, activeUserId, users }) {
     content: doc.content || '',
   });
   const initialisedRef = useRef(false);
+
+  const isOwner = doc.owner_id === activeUserId;
+  const ownerUser = users.find((user) => user.id === doc.owner_id);
 
   const editor = useEditor({
     extensions: [
@@ -616,7 +681,7 @@ function EditorSurface({ doc, activeUserId, users }) {
       setSaveState('saved');
       savedIndicatorRef.current = setTimeout(
         () => setSaveState('idle'),
-        SAVED_INDICATOR_MS
+        2000
       );
     } catch (err) {
       if (saveRequestRef.current !== requestId) return;
@@ -693,66 +758,81 @@ function EditorSurface({ doc, activeUserId, users }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-900"
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          All documents
-        </Link>
+    <div className="min-h-screen">
+      <div className="sticky top-16 z-20 border-b border-slate-200/70 bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Back to Workspace</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
+            <SaveStatusPill state={saveState} message={saveError} />
+          </div>
 
-        <div className="flex items-center gap-3">
-          <SaveIndicator state={saveState} message={saveError} />
-          {doc.owner_id === activeUserId ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => setIsShareOpen(true)}
+                aria-haspopup="dialog"
+                aria-label="Share document"
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-medium text-slate-700 shadow-2xs transition hover:bg-slate-50 sm:px-3"
+              >
+                <UserPlus className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Share</span>
+              </button>
+            ) : null}
+
             <button
               type="button"
-              onClick={() => setIsShareOpen(true)}
-              aria-haspopup="dialog"
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              onClick={() => void save()}
+              disabled={saveState === 'saving' || !editor}
+              aria-label="Save document"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-medium text-slate-700 shadow-2xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-3"
             >
-              <Share2 className="size-4" aria-hidden="true" />
-              Share
+              {saveState === 'saving' ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Save className="size-4" aria-hidden="true" />
+              )}
+              <span className="hidden sm:inline">Save</span>
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saveState === 'saving' || !editor}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saveState === 'saving' ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => void handleDeleteDocument()}
+                aria-label="Delete document"
+                className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 sm:px-3"
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
             ) : (
-              <Save className="size-4" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={() => void handleRemoveSelf()}
+                aria-label="Remove from my list"
+                className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-500 transition hover:bg-rose-50 hover:text-rose-600 sm:px-3"
+              >
+                <UserMinus className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Remove</span>
+              </button>
             )}
-            Save
-          </button>
-          {doc.owner_id === activeUserId ? (
-            <button
-              type="button"
-              onClick={() => void handleDeleteDocument()}
-              className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50"
-            >
-              <Trash2 className="size-4" aria-hidden="true" />
-              Delete
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void handleRemoveSelf()}
-              className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-sm font-semibold text-rose-600 shadow-sm transition hover:bg-rose-50"
-            >
-              <UserMinus className="size-4" aria-hidden="true" />
-              Remove from my list
-            </button>
-          )}
+          </div>
         </div>
       </div>
 
-      <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <header className="border-b border-slate-100 px-5 pb-5 pt-6 sm:px-8">
+      <div className="pointer-events-none sticky top-[125px] z-10 flex justify-center py-3">
+        <Toolbar editor={editor} />
+      </div>
+
+      <div className="mx-auto w-full max-w-3xl px-4 pb-16 sm:px-6 lg:px-8">
+        <div className="mt-4 min-h-[72vh] rounded-2xl border border-slate-200/80 bg-white px-6 py-10 shadow-sm shadow-slate-200/40 sm:px-14 sm:py-12">
           <input
             type="text"
             value={title}
@@ -761,35 +841,35 @@ function EditorSurface({ doc, activeUserId, users }) {
             placeholder="Untitled document"
             aria-label="Document title"
             maxLength={200}
-            className="-mx-2 w-full rounded-lg border border-transparent bg-transparent px-2 py-1 text-2xl font-semibold tracking-tight text-slate-900 transition placeholder:text-slate-300 hover:border-slate-200 focus:border-indigo-300 focus:bg-slate-50/60 focus:outline-none sm:text-3xl"
+            className="mb-2 w-full border-0 bg-transparent text-3xl font-bold tracking-tight text-slate-900 placeholder:text-slate-300 focus:outline-none sm:text-4xl"
           />
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
-            <span>Document #{doc.id}</span>
+          <div className="mb-8 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 pb-6 text-xs text-slate-400">
+            <span className="inline-flex items-center gap-2 font-medium text-slate-500">
+              <span
+                className={`grid size-5 place-items-center rounded-full text-[9px] font-semibold text-white ${colorFor(
+                  doc.owner_id,
+                  users
+                )}`}
+                aria-hidden="true"
+              >
+                {initials(ownerUser?.name)}
+              </span>
+              {isOwner
+                ? 'Owned by you'
+                : `Shared by ${ownerUser?.name ?? 'the owner'}`}
+            </span>
             <span aria-hidden="true">·</span>
             <span>Last saved {formatTimestamp(lastUpdatedAt)}</span>
-            {doc.owner_id !== activeUserId ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>Shared with you</span>
-              </>
-            ) : null}
           </div>
-        </header>
 
-        <div className="sticky top-16 z-10 border-b border-slate-100 bg-white/95 px-3 py-2 backdrop-blur sm:px-6">
-          <Toolbar editor={editor} />
-        </div>
-
-        <div className="px-5 py-6 sm:px-8 sm:py-8">
           <EditorContent editor={editor} />
         </div>
-      </article>
 
-      <p className="mt-3 text-center text-xs text-slate-400">
-        Changes save automatically after you stop typing. Use Save to persist
-        immediately.
-      </p>
+        <p className="mt-4 text-center text-[11px] text-slate-400">
+          Changes save automatically as you write.
+        </p>
+      </div>
 
       {isShareOpen ? (
         <ShareModal
@@ -810,15 +890,15 @@ function EditorSurface({ doc, activeUserId, users }) {
 function EditorLoading() {
   return (
     <div
-      className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6 lg:px-8"
+      className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 lg:px-8"
       aria-busy="true"
       aria-live="polite"
     >
-      <div className="mb-6 h-4 w-28 animate-pulse rounded bg-slate-200" />
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <div className="h-8 w-2/3 animate-pulse rounded bg-slate-200" />
-        <div className="mt-3 h-3 w-40 animate-pulse rounded bg-slate-100" />
-        <div className="mt-8 space-y-3">
+      <div className="mb-4 h-4 w-32 animate-pulse rounded bg-slate-200/70" />
+      <div className="min-h-[60vh] rounded-2xl border border-slate-200/80 bg-white px-6 py-10 shadow-sm shadow-slate-200/40 sm:px-14 sm:py-12">
+        <div className="h-9 w-2/3 animate-pulse rounded bg-slate-200/80" />
+        <div className="mt-4 h-3 w-52 animate-pulse rounded bg-slate-100" />
+        <div className="mt-10 space-y-3">
           <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
           <div className="h-4 w-11/12 animate-pulse rounded bg-slate-100" />
           <div className="h-4 w-4/5 animate-pulse rounded bg-slate-100" />
@@ -841,35 +921,37 @@ function EditorErrorState({ status, message, documentId, onRetry }) {
       : 'Could not load document';
 
   const description = isForbidden
-    ? 'This document has not been shared with the active user. Switch users in the top bar, or ask the owner to share it with you.'
+    ? 'This document has not been shared with the active account. Switch accounts in the top bar, or ask the owner to share it with you.'
     : isNotFound
       ? `Document #${documentId} does not exist, or it was deleted.`
       : message || 'Something went wrong while loading this document.';
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col items-center px-4 py-24 text-center">
-      <span className="grid size-14 place-items-center rounded-2xl bg-slate-100 text-slate-500 ring-1 ring-slate-200">
+      <span className="grid size-14 place-items-center rounded-2xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200/80">
         <Icon className="size-7" aria-hidden="true" />
       </span>
-      <h1 className="mt-5 text-2xl font-semibold tracking-tight text-slate-900">
+      <h1 className="mt-5 font-serif text-3xl font-medium tracking-tight text-slate-900">
         {heading}
       </h1>
-      <p className="mt-2 text-sm text-slate-500">{description}</p>
+      <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-500">
+        {description}
+      </p>
 
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-slate-700"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to dashboard
+          Back to workspace
         </Link>
 
         {!isForbidden && !isNotFound && onRetry ? (
           <button
             type="button"
             onClick={onRetry}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-2xs transition hover:bg-slate-50"
           >
             Try again
           </button>

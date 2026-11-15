@@ -1,6 +1,6 @@
 # Architecture & Tradeoffs
 
-**Candidate:** Furquan Khan (notoriouskhan123@gmail.com)
+**Candidate:** Furquan Khan (ifurquankhan7@gmail.com)
 
 ## Tech Stack
 * **Frontend:** React 18, Vite, Tailwind CSS, TipTap (Editor)
